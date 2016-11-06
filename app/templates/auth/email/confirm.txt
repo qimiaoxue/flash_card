@@ -1,5 +1,5 @@
 Dear {{ user.username }},
-Welcome to XueYan's Blog!
+Welcome to XueYan's FlashCard!
 
 To confirm your account please click on the following link:
 
