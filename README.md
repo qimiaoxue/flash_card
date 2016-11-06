@@ -1,4 +1,5 @@
-XueYan's Blog
+XueYan's Flash Card
 =========
 
-This is my blog.
+This is a flash card system to help me to remember english words and other
+import concepts.
