@@ -11,6 +11,12 @@ from wtforms.validators import Length
 from wtforms.validators import Email
 from wtforms.validators import Regexp
 from wtforms import ValidationError
+from flask_pagedown.fields import PageDownField
+
+
+class NameForm(Form):
+    name = StringField('What is your name?', validators=[Required()])
+    submit = SubmitField('Submit')
 
 
 class EditProfileForm(Form):
@@ -47,7 +53,8 @@ class EditProfileAdminForm(Form):
             Regexp(
                 '^[A-Za-z][A-Za-z0-9_.]*$',
                 0,
-                'Usernames must have only letters, numbers, dots and underscores'
+                'Usernames must have only letters, '
+                'numbers, dots and underscores'
             )
         ]
     )
@@ -67,9 +74,29 @@ class EditProfileAdminForm(Form):
         self.user = user
 
     def validate_email(self, field):
-        if (field.data != self.user.email and User.query.filter_by(email=field.data).first()):
+        if (
+            field.data != self.user.email and
+            User.query.filter_by(email=field.data).first()
+        ):
             raise ValidationError('Email already registered.')
 
     def validate_username(self, field):
-        if (field.data != self.user.username and User.query.filter_by(username=field.data).first()):
+        if (
+            field.data != self.user.username and
+            User.query.filter_by(username=field.data).first()
+        ):
             raise ValidationError('Username already in use.')
+
+
+class PostForm(Form):
+    question = PageDownField(
+        "What's on your mind?",
+        validators=[Required()],
+        render_kw={'rows': 7, 'cols': 7}
+    )
+    answer = PageDownField(
+        "And the answer is?",
+        validators=[Required()],
+        render_kw={'rows': 7, 'cols': 7}
+    )
+    submit = SubmitField('Submit')

@@ -7,8 +7,58 @@ from flask_login import AnonymousUserMixin
 from werkzeug.security import generate_password_hash
 from werkzeug.security import check_password_hash
 from itsdangerous import TimedJSONWebSignatureSerializer as Serializer
-from flask import current_app
-from flask import request
+from markdown import markdown
+import bleach
+from flask import current_app, request
+
+
+class Permission:
+    FOLLOW = 0x01
+    COMMENT = 0x02
+    WRITE_ARTICLES = 0x04
+    MODERATE_COMMENTS = 0x08
+    ADMINISTER = 0x80
+
+
+class Role(db.Model):
+    __tablename__ = 'roles'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(64), unique=True)
+    default = db.Column(db.Boolean, default=False, index=True)
+    permissions = db.Column(db.Integer)
+    users = db.relationship('User', backref='role', lazy='dynamic')
+
+    @staticmethod
+    def insert_roles():
+        roles = dict(
+            User=(
+                Permission.FOLLOW |
+                Permission.COMMENT |
+                Permission.WRITE_ARTICLES,
+                True
+            ),
+            Moderator=(
+                Permission.FOLLOW |
+                Permission.COMMENT |
+                Permission.WRITE_ARTICLES |
+                Permission.MODERATE_COMMENTS,
+                False
+            ),
+            Administrator=(
+                0xff,
+                False
+            ),
+        )
+        for r in roles:
+            role = Role.query.filter_by(name=r).first()
+            if role is None:
+                role = Role(name=r)
+            role.permissions, role.default = roles[r]
+            db.session.add(role)
+        db.session.commit()
+
+    def __repr__(self):
+        return '<Role %r>' % self.name
 
 
 class User(UserMixin, db.Model):
@@ -19,13 +69,35 @@ class User(UserMixin, db.Model):
     role_id = db.Column(db.Integer, db.ForeignKey('roles.id'))
     password_hash = db.Column(db.String(128))
     confirmed = db.Column(db.Boolean, default=False)
-
     name = db.Column(db.String(64))
     location = db.Column(db.String(64))
     about_me = db.Column(db.Text())
     member_since = db.Column(db.DateTime(), default=datetime.utcnow)
     last_seen = db.Column(db.DateTime(), default=datetime.utcnow)
     avatar_hash = db.Column(db.String(32))
+    posts = db.relationship('Post', backref='author', lazy='dynamic')
+
+    @staticmethod
+    def generate_fake(count=100):
+        from sqlalchemy.exc import IntegrityError
+        from random import seed
+        import forgery_py
+
+        seed()
+        for i in range(count):
+            u = User(email=forgery_py.internet.email_address(),
+                     username=forgery_py.internet.user_name(True),
+                     password=forgery_py.lorem_ipsum.word(),
+                     confirmed=True,
+                     name=forgery_py.name.full_name(),
+                     location=forgery_py.address.city(),
+                     about_me=forgery_py.lorem_ipsum.sentence(),
+                     member_since=forgery_py.date.date(True))
+            db.session.add(u)
+            try:
+                db.session.commit()
+            except IntegrityError:
+                db.session.rollback()
 
     def __init__(self, **kw):
         super(User, self).__init__(**kw)
@@ -139,59 +211,80 @@ class AnonymousUser(AnonymousUserMixin):
     def is_administrator(self):
         return False
 
-
-class Role(db.Model):
-
-    __tablename__ = 'roles'
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(64), unique=True)
-    default = db.Column(db.Boolean, default=True, index=True)
-    permissions = db.Column(db.Integer)
-    users = db.relationship('User', backref='role', lazy='dynamic')
-
-    @staticmethod
-    def insert_roles():
-        roles = dict(
-            User=(
-                Permission.FOLLOW |
-                Permission.COMMENT |
-                Permission.WRITE_ARTICLES,
-                True
-            ),
-            Moderator=(
-                Permission.FOLLOW |
-                Permission.COMMENT |
-                Permission.WRITE_ARTICLES |
-                Permission.MODERATE_COMMENTS,
-                False
-            ),
-            Administrator=(
-                0xff,
-                False
-            ),
-        )
-        for r in roles:
-            role = Role.query.filter_by(name=r).first()
-            if role is None:
-                role = Role(name=r)
-            role.permissions, role.default = roles[r]
-            db.session.add(role)
-        db.session.commit()
-
-    def __repr__(self):
-        return '<Role %r>' % self.name
-
-
-class Permission:
-    FOLLOW = 0x01
-    COMMENT = 0x02
-    WRITE_ARTICLES = 0x04
-    MODERATE_COMMENTS = 0x08
-    ADMINISTER = 0x80
+login_manager.anonymous_user = AnonymousUser
 
 
 @login_manager.user_loader
 def load_user(user_id):
-    return User.query.get(user_id)
+    return User.query.get(int(user_id))
 
-login_manager.anonymous_user = AnonymousUser
+
+class Post(db.Model):
+    __tablename__ = 'posts'
+    id = db.Column(db.Integer, primary_key=True)
+    question = db.Column(db.Text)
+    answer = db.Column(db.Text)
+    question_html = db.Column(db.Text)
+    answer_html = db.Column(db.Text)
+    timestamp = db.Column(db.DateTime, index=True, default=datetime.utcnow)
+    author_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    tasks = db.relationship('Task', backref='post', lazy='dynamic')
+
+    @staticmethod
+    def generate_fake(count=100):
+        from random import seed, randint
+        import forgery_py
+
+        seed()
+        user_count = User.query.count()
+        for i in range(count):
+            u = User.query.offset(randint(0, user_count - 1)).first()
+            p = Post(
+                question=forgery_py.lorem_ipsum.sentences(randint(1, 5)),
+                answer=forgery_py.lorem_ipsum.sentences(randint(1, 5)),
+                timestamp=forgery_py.date.date(True),
+                author=u)
+            db.session.add(p)
+            db.session.commit()
+
+    @staticmethod
+    def on_changed_question(target, value, oldvalue, initiator):
+        allowed_tags = ['a', 'abbr', 'acronym', 'b', 'blockquote', 'code',
+                        'em', 'i', 'li', 'ol', 'pre', 'strong', 'ul',
+                        'h1', 'h2', 'h3', 'p']
+        target.question_html = bleach.linkify(
+            bleach.clean(
+                markdown(value, output_format='html'),
+                tags=allowed_tags,
+                strip=True,
+            )
+        )
+
+    @staticmethod
+    def on_changed_answer(target, value, oldvalue, initiator):
+        allowed_tags = ['a', 'abbr', 'acronym', 'b', 'blockquote', 'code',
+                        'em', 'i', 'li', 'ol', 'pre', 'strong', 'ul',
+                        'h1', 'h2', 'h3', 'p']
+        target.answer_html = bleach.linkify(
+            bleach.clean(
+                markdown(value, output_format='html'),
+                tags=allowed_tags,
+                strip=True,
+            )
+        )
+
+
+class Task(db.Model):
+    __tablename__ = 'tasks'
+    id = db.Column(db.Integer, primary_key=True)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    start_timestamp = db.Column(
+        db.DateTime,
+        index=True,
+        default=datetime.utcnow
+    )
+    post_id = db.Column(db.Integer, db.ForeignKey('posts.id'))
+
+
+db.event.listen(Post.question, 'set', Post.on_changed_question)
+db.event.listen(Post.answer, 'set', Post.on_changed_answer)

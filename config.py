@@ -8,6 +8,7 @@ class Config:
     FLASKY_MAIL_SUBJECT_PREFIX = "[XueYan's Blog]"
     FLASKY_MAIL_SENDER = "XueYan's Blog Admin <m13488699851@163.com>"
     FLASKY_ADMIN = os.environ.get('MAIL_USERNAME')
+    FLASKY_POSTS_PER_PAGE = 25
     # FLASKY_ADMIN = os.environ.get('FLASKY_ADMIN')
 
     @staticmethod

@@ -1,0 +1,13 @@
+{% block title %}XueYan's Blog - Question{% endblock %}
+
+{% block page_content %}
+<div>
+    <h1>
+        Question
+    </h1>
+        {{ question }}
+    <details>
+        {{ answer }}
+    </details>
+</div>
+{% endblock %}

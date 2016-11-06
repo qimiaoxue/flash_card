@@ -23,7 +23,11 @@ from ..email import send_email
 def before_request():
     if current_user.is_authenticated:
         current_user.update_last_seen()
-        if not current_user.confirmed and request.endpoint[:5] != 'auth.':
+        if (
+            not current_user.confirmed and
+            request.endpoint[:5] != 'auth.' and
+            request.endpoint != 'static'
+        ):
             return redirect(url_for('auth.unconfirmed'))
 
 
@@ -130,7 +134,8 @@ def password_reset_request():
                 user=user, token=token,
                 next=request.args.get('next')
             )
-            flash('An Email with instructions to reset your password has been sent to you.')
+            flash('An Email with instructions to reset your '
+                  'password has been sent to you.')
         else:
             flash('Email not registered')
         return redirect(url_for('auth.login'))
@@ -168,7 +173,8 @@ def change_email_request():
                 'auth/email/change_email',
                 user=current_user, token=token
             )
-            flash('An email with instructions to confirm your new email address has been sent to you.')
+            flash('An email with instructions to confirm your '
+                  'new email address has been sent to you.')
             return redirect(url_for('main.index'))
         else:
             flash('Invalid email or password.')
